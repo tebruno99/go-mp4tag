@@ -346,6 +346,10 @@ func (mp4 MP4) readChap(boxes MP4Boxes) ([]Chapter, error) {
 			if err != nil {
 				return chapters, err
 			}
+
+			if length <= 0 {
+				return chapters, err
+			}
 			chapterTitle, err := mp4.readString(int64(length))
 
 			if err != nil {
