@@ -6,6 +6,7 @@ import (
 	"io"
 	"strconv"
 	"strings"
+	"time"
 )
 
 func (boxes MP4Boxes) getBoxByPath(boxPath string) *MP4Box {
@@ -22,7 +23,7 @@ func (boxes MP4Boxes) getBoxesByPath(boxPath string) []*MP4Box {
 	for _, box := range boxes.Boxes {
 		if box.Path == boxPath {
 			outBoxes = append(outBoxes, box)
-		}	
+		}
 	}
 	return outBoxes
 }
@@ -36,7 +37,7 @@ func (mp4 MP4) readString(size int64) (string, error) {
 	return string(buf), nil
 }
 
-func (mp4 MP4)  readBoxName() (string, error) {
+func (mp4 MP4) readBoxName() (string, error) {
 	buf := make([]byte, 4)
 	_, err := io.ReadFull(mp4.f, buf)
 	if err != nil {
@@ -69,6 +70,16 @@ func (mp4 MP4) readI32BE() (int32, error) {
 	return int32(num), nil
 }
 
+func (mp4 MP4) readI64BE() (int64, error) {
+	buf := make([]byte, 8)
+	_, err := io.ReadFull(mp4.f, buf)
+	if err != nil {
+		return -1, err
+	}
+	num := binary.BigEndian.Uint64(buf)
+	return int64(num), nil
+}
+
 func (mp4 MP4) readBoxes(boxes MP4Boxes, parentEndsAt, level int64, p string) (MP4Boxes, error) {
 	empty := MP4Boxes{}
 	pos, err := getPos(mp4.f)
@@ -98,7 +109,7 @@ func (mp4 MP4) readBoxes(boxes MP4Boxes, parentEndsAt, level int64, p string) (M
 	box := &MP4Box{
 		StartOffset: pos,
 		EndOffset:   endsAt,
-		BoxSize:	 boxSize,
+		BoxSize:     boxSize,
 		Path:        p[1:],
 	}
 	boxes.Boxes = append(boxes.Boxes, box)
@@ -109,7 +120,7 @@ func (mp4 MP4) readBoxes(boxes MP4Boxes, parentEndsAt, level int64, p string) (M
 		}
 	}
 	p = p[:len(p)-len(boxName)-1]
-	_, err = mp4.f.Seek(pos + boxSize, io.SeekStart)
+	_, err = mp4.f.Seek(pos+boxSize, io.SeekStart)
 	if err != nil {
 		return empty, err
 	}
@@ -122,13 +133,262 @@ func checkBoxes(boxes MP4Boxes) error {
 		"moov", "mdat", "moov.udta", "moov.udta.meta",
 		"moov.trak.mdia.minf.stbl.stco",
 	}
-	// "moov.udta.meta.ilst" 
 	for _, path := range paths {
 		if boxes.getBoxByPath(path) == nil {
 			return &ErrBoxNotPresent{Msg: path + " box not present"}
 		}
 	}
 	return nil
+}
+
+func (mp4 MP4) readDuration(boxes MP4Boxes) (time.Duration, error) {
+	mvhd := boxes.getBoxByPath("moov.mvhd")
+	mp4.f.Seek(mvhd.StartOffset+20, io.SeekStart)
+	timeScale, err := mp4.readI32BE()
+	if err != nil {
+		return 0, err
+	}
+	timeUnit, err := mp4.readI32BE()
+	if err != nil {
+		return 0, err
+	}
+	microseconds := (float64(timeUnit) / float64(timeScale)) * 1000000
+	var d time.Duration = time.Duration(microseconds * float64(time.Microsecond))
+	return d, nil
+}
+
+type SamplesPerChunk struct {
+	firstChunk int
+	numSamples int
+}
+
+func (mp4 MP4) readNeroChap(boxes MP4Boxes) ([]Chapter, error) {
+	chapters := []Chapter{}
+	chplBox := boxes.getBoxByPath("moov.udta.chpl")
+
+	// Skip version flags and reserved bytes
+	_, err := mp4.f.Seek(chplBox.StartOffset+13, io.SeekStart)
+	if err != nil {
+		return chapters, err
+	}
+
+	chapterCount, err := mp4.readI32BE()
+	if err != nil {
+		return chapters, err
+	}
+
+	for i := 0; i < int(chapterCount); i++ {
+		chapterStartTime, err := mp4.readI64BE()
+		if err != nil {
+			return chapters, err
+		}
+		b, err := mp4.readByte()
+		if err != nil {
+			return chapters, err
+		}
+		titleLength := uint8(b)
+
+		title, err := mp4.readString(int64(titleLength))
+		if err != nil {
+			return chapters, err
+		}
+		// 100 nanosecond base for some reason
+		chapter := Chapter{StartTime: time.Duration(chapterStartTime * 100), Title: title}
+		if len(chapters) > 0 {
+			lastChapter := &chapters[len(chapters)-1]
+			lastChapter.Duration = chapter.StartTime - lastChapter.StartTime
+
+		}
+		chapters = append(chapters, chapter)
+	}
+
+	return chapters, nil
+}
+
+func (mp4 MP4) readChap(boxes MP4Boxes) ([]Chapter, error) {
+	// Read nero chapters rather than Quicktime if they exist
+	if boxes.getBoxByPath("moov.udta.chpl") != nil {
+		return mp4.readNeroChap(boxes)
+	}
+
+	chapters := []Chapter{}
+	hdlrBoxes := boxes.getBoxesByPath("moov.trak.mdia.hdlr")
+
+	// Have to make sure the the trak is subType "text"
+	mdiaIndex := -1
+	for i, box := range hdlrBoxes {
+		mp4.f.Seek(box.StartOffset+16, io.SeekStart)
+		subType, err := mp4.readString(4)
+		if err != nil {
+			return chapters, err
+		}
+		if subType == "text" {
+			mdiaIndex = i
+		}
+	}
+
+	// No chapter trak
+	if mdiaIndex == -1 {
+		return chapters, nil
+	}
+
+	var mdhdBox *MP4Box
+	var stscBox *MP4Box
+	var stcoBox *MP4Box
+	var sttsBox *MP4Box
+
+	var samplesPerChunk []SamplesPerChunk
+
+	mdhdBoxes := boxes.getBoxesByPath("moov.trak.mdia.mdhd")
+	for i, box := range mdhdBoxes {
+		if i == mdiaIndex {
+			mdhdBox = box
+		}
+	}
+	if mdhdBox == nil {
+		return chapters, &ErrInvalidChapter{}
+	}
+
+	mp4.f.Seek(mdhdBox.StartOffset+20, io.SeekStart)
+	timeScale, err := mp4.readI32BE()
+	if err != nil {
+		return chapters, err
+	}
+
+	stscBoxes := boxes.getBoxesByPath("moov.trak.mdia.minf.stbl.stsc")
+	for i, box := range stscBoxes {
+		if i == mdiaIndex {
+			stscBox = box
+		}
+	}
+	if stscBox == nil {
+		return chapters, &ErrInvalidChapter{}
+	}
+
+	stcoBoxes := boxes.getBoxesByPath("moov.trak.mdia.minf.stbl.stco")
+	for i, box := range stcoBoxes {
+		if i == mdiaIndex {
+			stcoBox = box
+		}
+	}
+	if stcoBox == nil {
+		return chapters, &ErrInvalidChapter{}
+	}
+
+	sttsBoxes := boxes.getBoxesByPath("moov.trak.mdia.minf.stbl.stts")
+	for i, box := range sttsBoxes {
+		if i == mdiaIndex {
+			sttsBox = box
+		}
+	}
+	if sttsBox == nil {
+		return chapters, &ErrInvalidChapter{}
+	}
+
+	_, err = mp4.f.Seek(stscBox.StartOffset+12, io.SeekStart)
+	if err != nil {
+		return chapters, err
+	}
+
+	numEntries, err := mp4.readI32BE()
+	if err != nil {
+		return chapters, err
+	}
+
+	for i := 0; i < int(numEntries); i++ {
+		firstChunk, err := mp4.readI32BE()
+		if err != nil {
+			return chapters, err
+		}
+		numSamples, err := mp4.readI32BE()
+		if err != nil {
+			return chapters, err
+		}
+		mp4.f.Seek(4, io.SeekCurrent)
+		samplesPerChunk = append(samplesPerChunk, SamplesPerChunk{firstChunk: int(firstChunk), numSamples: int(numSamples)})
+	}
+
+	_, err = mp4.f.Seek(stcoBox.StartOffset+12, io.SeekStart)
+	if err != nil {
+		return chapters, err
+	}
+	numEntries, err = mp4.readI32BE()
+	if err != nil {
+		return chapters, err
+	}
+
+	chunkOffsets := []int{}
+	for i := 0; i < int(numEntries); i++ {
+		chunkOffset, err := mp4.readI32BE()
+		if err != nil {
+			return chapters, err
+		}
+		chunkOffsets = append(chunkOffsets, int(chunkOffset))
+	}
+
+	chapterTitles := []string{}
+	for i, offset := range chunkOffsets {
+		var chunkNumber = i + 1
+
+		var numSamples = 1
+
+		for _, record := range samplesPerChunk {
+			if record.firstChunk > chunkNumber {
+				break
+			}
+			numSamples = record.numSamples
+		}
+
+		mp4.f.Seek(int64(offset), io.SeekStart)
+
+		for j := 0; j < numSamples; j++ {
+			length, err := mp4.readI16BE()
+			if err != nil {
+				return chapters, err
+			}
+
+			if length <= 0 {
+				return chapters, err
+			}
+			chapterTitle, err := mp4.readString(int64(length))
+
+			if err != nil {
+				return chapters, err
+			}
+			chapterTitles = append(chapterTitles, chapterTitle)
+		}
+	}
+
+	_, err = mp4.f.Seek(sttsBox.StartOffset+12, io.SeekStart)
+	if err != nil {
+		return chapters, err
+	}
+	numEntries, err = mp4.readI32BE()
+	if err != nil {
+		return chapters, err
+	}
+	if int(numEntries) != len(chapterTitles) {
+		return chapters, &ErrInvalidChapter{}
+	}
+
+	var start time.Duration = 0
+	for i := 0; i < int(numEntries); i++ {
+		mp4.f.Seek(4, io.SeekCurrent)
+		durationMs, err := mp4.readI32BE()
+		if err != nil {
+			return chapters, err
+		}
+		var duration = time.Duration(float64(durationMs) / float64(timeScale) * float64(time.Second))
+		chapter := Chapter{
+			Title:     chapterTitles[i],
+			StartTime: start,
+			Duration:  duration,
+		}
+		chapters = append(chapters, chapter)
+		start += duration
+	}
+
+	return chapters, nil
 }
 
 func (mp4 MP4) readTag(boxes MP4Boxes, boxName string) (string, error) {
@@ -141,7 +401,7 @@ func (mp4 MP4) readTag(boxes MP4Boxes, boxName string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	tag, err := mp4.readString(box.BoxSize-16)
+	tag, err := mp4.readString(box.BoxSize - 16)
 	return tag, err
 }
 
@@ -184,7 +444,7 @@ func (mp4 MP4) readPics(_boxes MP4Boxes) ([]*MP4Picture, error) {
 			return nil, err
 		}
 
-		imageType, ok  := resolveImageType[uint8(b)]
+		imageType, ok := resolveImageType[uint8(b)]
 		if ok {
 			if imageType == ImageTypeJPEG {
 				pic.Format = ImageTypeJPEG
@@ -242,11 +502,11 @@ func addToOthers(others map[string][]string, key, val string) map[string][]strin
 
 func (mp4 MP4) readCustom(boxes MP4Boxes) (map[string]string, map[string][]string, error) {
 	var (
-		names []string
+		names  []string
 		values []string
 	)
 	path := "moov.udta.meta.ilst.----"
-	nameBoxes := boxes.getBoxesByPath(path+".name")
+	nameBoxes := boxes.getBoxesByPath(path + ".name")
 	if nameBoxes == nil {
 		return nil, nil, nil
 	}
@@ -255,7 +515,7 @@ func (mp4 MP4) readCustom(boxes MP4Boxes) (map[string]string, map[string][]strin
 		if err != nil {
 			return nil, nil, err
 		}
-		name, err := mp4.readString(box.BoxSize-12)
+		name, err := mp4.readString(box.BoxSize - 12)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -267,11 +527,11 @@ func (mp4 MP4) readCustom(boxes MP4Boxes) (map[string]string, map[string][]strin
 
 	others := map[string][]string{}
 
-	dataBoxes := boxes.getBoxesByPath(path+".data")
+	dataBoxes := boxes.getBoxesByPath(path + ".data")
 
 	var (
 		prev int64
-		idx int
+		idx  int
 	)
 
 	for _, box := range dataBoxes {
@@ -279,7 +539,7 @@ func (mp4 MP4) readCustom(boxes MP4Boxes) (map[string]string, map[string][]strin
 		if err != nil {
 			return nil, nil, err
 		}
-		value, err := mp4.readString(box.BoxSize-16)
+		value, err := mp4.readString(box.BoxSize - 16)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -300,7 +560,7 @@ func (mp4 MP4) readCustom(boxes MP4Boxes) (map[string]string, map[string][]strin
 			existingOthers, ok := others[name]
 			if ok {
 				existingOthers = append(existingOthers, values[idx])
-				others[name] = existingOthers			
+				others[name] = existingOthers
 			} else {
 				others[name] = []string{values[idx]}
 			}
@@ -381,15 +641,15 @@ func (mp4 MP4) readGenre(boxes MP4Boxes) (Genre, error) {
 
 func (mp4 MP4) readTags(boxes MP4Boxes) (*MP4Tags, error) {
 	album, err := mp4.readTag(boxes, "(c)alb")
-	if err != nil  {
+	if err != nil {
 		return nil, err
 	}
 	albumArtist, err := mp4.readTag(boxes, "aART")
-	if err != nil  {
+	if err != nil {
 		return nil, err
 	}
 	artist, err := mp4.readTag(boxes, "(c)art")
-	if err != nil  {
+	if err != nil {
 		return nil, err
 	}
 	bpm, err := mp4.readBPM(boxes)
@@ -397,114 +657,126 @@ func (mp4 MP4) readTags(boxes MP4Boxes) (*MP4Tags, error) {
 		return nil, err
 	}
 
+	chapters, err := mp4.readChap(boxes)
+	if err != nil {
+		return nil, err
+	}
+
+	duration, err := mp4.readDuration(boxes)
+	if err != nil {
+		return nil, err
+	}
+
 	comment, err := mp4.readTag(boxes, "(c)cmt")
-	if err != nil  {
+	if err != nil {
 		return nil, err
 	}
 	composer, err := mp4.readTag(boxes, "(c)wrt")
-	if err != nil  {
+	if err != nil {
 		return nil, err
 	}
 	conductor, err := mp4.readTag(boxes, "(c)con")
-	if err != nil  {
+	if err != nil {
 		return nil, err
 	}
 	copyright, err := mp4.readTag(boxes, "cprt")
-	if err != nil  {
+	if err != nil {
 		return nil, err
 	}
 	custom, otherCustom, err := mp4.readCustom(boxes)
-	if err != nil  {
+	if err != nil {
 		return nil, err
-	}	
+	}
 	customGenre, err := mp4.readTag(boxes, "(c)gen")
-	if err != nil  {
+	if err != nil {
 		return nil, err
 	}
 	description, err := mp4.readTag(boxes, "desc")
-	if err != nil  {
+	if err != nil {
 		return nil, err
 	}
 	lyrics, err := mp4.readTag(boxes, "(c)lyr")
-	if err != nil  {
+	if err != nil {
 		return nil, err
 	}
 	narrator, err := mp4.readTag(boxes, "(c)nrt")
-	if err != nil  {
+	if err != nil {
 		return nil, err
 	}
 	publisher, err := mp4.readTag(boxes, "(c)pub")
-	if err != nil  {
+	if err != nil {
 		return nil, err
 	}
 	title, err := mp4.readTag(boxes, "(c)nam")
-	if err != nil  {
+	if err != nil {
 		return nil, err
 	}
 
 	pics, err := mp4.readPics(boxes)
-	if err != nil  {
+	if err != nil {
 		return nil, err
 	}
 	trackNum, trackTotal, err := mp4.readTrknDisk(boxes, "trkn")
-	if err != nil  {
+	if err != nil {
 		return nil, err
 	}
 	discNum, discTotal, err := mp4.readTrknDisk(boxes, "disk")
-	if err != nil  {
+	if err != nil {
 		return nil, err
 	}
 
 	genre, err := mp4.readGenre(boxes)
-	if err != nil  {
+	if err != nil {
 		return nil, err
 	}
 
 	advisory, err := mp4.readAdvisory(boxes)
-	if err != nil  {
+	if err != nil {
 		return nil, err
 	}
 
 	albumID, err := mp4.readITAlbumID(boxes)
-	if err != nil  {
+	if err != nil {
 		return nil, err
 	}
 
 	artistID, err := mp4.readITArtistID(boxes)
-	if err != nil  {
+	if err != nil {
 		return nil, err
 	}
 
 	tags := &MP4Tags{
-		Album: album,
-		AlbumArtist: albumArtist,
-		Artist: artist,
-		BPM: bpm,
-		Comment: comment,
-		Composer: composer,
-		Conductor: conductor,
-		Copyright: copyright,
-		Custom: custom,
-		CustomGenre: customGenre,
-		Description: description,
-		DiscNumber: discNum,
-		DiscTotal: discTotal,
-		Genre: genre,
+		Album:          album,
+		AlbumArtist:    albumArtist,
+		Artist:         artist,
+		BPM:            bpm,
+		Comment:        comment,
+		Composer:       composer,
+		Conductor:      conductor,
+		Copyright:      copyright,
+		Custom:         custom,
+		CustomGenre:    customGenre,
+		Description:    description,
+		DiscNumber:     discNum,
+		DiscTotal:      discTotal,
+		Genre:          genre,
 		ItunesAdvisory: advisory,
-		ItunesAlbumID: albumID,
+		ItunesAlbumID:  albumID,
 		ItunesArtistID: artistID,
-		Lyrics: lyrics,
-		Narrator: narrator,
-		OtherCustom: otherCustom,
-		Pictures: pics,
-		Publisher: publisher,
-		Title: title,
-		TrackNumber: trackNum,
-		TrackTotal: trackTotal,
+		Lyrics:         lyrics,
+		Narrator:       narrator,
+		OtherCustom:    otherCustom,
+		Pictures:       pics,
+		Publisher:      publisher,
+		Title:          title,
+		TrackNumber:    trackNum,
+		TrackTotal:     trackTotal,
+		Chapters:       chapters,
+		Duration:       duration,
 	}
 
 	year, err := mp4.readTag(boxes, "(c)day")
-	if err != nil  {
+	if err != nil {
 		return nil, err
 	}
 
@@ -521,7 +793,7 @@ func (mp4 MP4) readTags(boxes MP4Boxes) (*MP4Tags, error) {
 	}
 
 	return tags, nil
-} 
+}
 
 func (mp4 MP4) actualRead() (*MP4Tags, MP4Boxes, error) {
 	var boxes MP4Boxes
