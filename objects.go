@@ -49,7 +49,8 @@ var containers = []string{
   "(c)pub", "trkn", "covr", "(c)day", "disk", "(c)too",
   "trak", "mdia", "minf", "stbl", "rtng", "plID",
   "atID", "tmpo", "sonm", "soal", "soar", "soco",
-  "soaa",
+  "soaa", "tvsn", "tvsh", "tves", "tven", "tvnn", "stik",
+  "ldes",
 }
 
 // 0-9
@@ -98,6 +99,50 @@ const (
 var resolveItunesAdvisory = map[uint8]ItunesAdvisory{
 	1: ItunesAdvisoryExplicit,
 	2: ItunesAdvisoryClean,
+}
+
+// iTunes stik
+type ItunesStik int8
+const (
+	HomeVideo       ItunesStik = 0
+	Normal          ItunesStik = 1
+	Audiobook       ItunesStik = 2
+	WhackedBookmark ItunesStik = 5
+	MusicVideo      ItunesStik = 6
+	Movie           ItunesStik = 9
+	TvShow          ItunesStik = 10
+	Booklet         ItunesStik = 11
+	RingTone        ItunesStik = 14
+	Podcast         ItunesStik = 21
+	iTunesU         ItunesStik = 23
+)
+
+var resolveItunesStik = map[uint8]ItunesStik{
+	0:  HomeVideo,
+	1:  Normal,
+	2:  Audiobook,
+	5:  WhackedBookmark,
+	6:  MusicVideo,
+	9:  Movie,
+	10: TvShow,
+	11: Booklet,
+	14: RingTone,
+	21: Podcast,
+	23: iTunesU,
+}
+
+var displayItunesStik = map[ItunesStik]string{
+	HomeVideo:       "Home Video",
+	Normal:          "Normal",
+	Audiobook:       "Audiobook",
+	WhackedBookmark: "Whacked Bookmark",
+	MusicVideo:      "Music Video",
+	Movie:           "Movie",
+	TvShow:          "TV Show",
+	Booklet:         "Booklet",
+	RingTone:        "Ring Tone",
+	Podcast:         "Podcast",
+	iTunesU:         "iTunesU",
 }
 
 // GenreNone
@@ -267,43 +312,133 @@ var resolveGenre = map[uint8]Genre{
 	79: GenreHardRock,
 }
 
+var displayGenre = map[Genre]string{
+	GenreBlues:            "Blues",
+	GenreClassicRock:      "Classic Rock",
+	GenreCountry:          "Country",
+	GenreDance:            "Dance",
+	GenreDisco:            "Disco",
+	GenreFunk:             "Funk",
+	GenreGrunge:           "Grunge",
+	GenreHipHop:           "Hip Hop",
+	GenreJazz:             "Jazz",
+	GenreMetal:            "Metal",
+	GenreNewAge:           "NewAge",
+	GenreOldies:           "Oldies",
+	GenreOther:            "Other",
+	GenrePop:              "Pop",
+	GenreRhythmAndBlues:   "Rhythm And Blues",
+	GenreRap:              "Rap",
+	GenreReggae:           "Reggae",
+	GenreRock:             "Rock",
+	GenreTechno:           "Techno",
+	GenreIndustrial:       "Industrial",
+	GenreAlternative:      "Alternative",
+	GenreSka:              "Ska",
+	GenreDeathMetal:       "Death Metal",
+	GenrePranks:           "Pranks",
+	GenreSoundtrack:       "Soundtrack",
+	GenreEurotechno:       "Eurotechno",
+	GenreAmbient:          "Ambient",
+	GenreTripHop:          "TripHop",
+	GenreVocal:            "Vocal",
+	GenreJassAndFunk:      "Jass And Funk",
+	GenreFusion:           "Fusion",
+	GenreTrance:           "Trance",
+	GenreClassical:        "Classical",
+	GenreInstrumental:     "Instrumental",
+	GenreAcid:             "Acid",
+	GenreHouse:            "House",
+	GenreGame:             "Game",
+	GenreSoundClip:        "Sound Clip",
+	GenreGospel:           "Gospel",
+	GenreNoise:            "Noise",
+	GenreAlternativeRock:  "Alternative Rock",
+	GenreBass:             "Bass",
+	GenreSoul:             "Soul",
+	GenrePunk:             "Punk",
+	GenreSpace:            "Space",
+	GenreMeditative:       "Meditative",
+	GenreInstrumentalPop:  "Instrumental Pop",
+	GenreInstrumentalRock: "Instrumental Rock",
+	GenreEthnic:           "Ethnic",
+	GenreGothic:           "Gothic",
+	GenreDarkwave:         "Darkwave",
+	GenreTechnoindustrial: "Techno Industrial",
+	GenreElectronic:       "Electronic",
+	GenrePopFolk:          "Pop Folk",
+	GenreEurodance:        "Eurodance",
+	GenreSouthernRock:     "Southern Rock",
+	GenreComedy:           "Comedy",
+	GenreCull:             "Cull",
+	GenreGangsta:          "Gangsta",
+	GenreTop40:            "Top 40",
+	GenreChristianRap:     "Christian Rap",
+	GenrePopSlashFunk:     "Pop Slash Funk",
+	GenreJungleMusic:      "Jungle Music",
+	GenreNativeUS:         "Native US",
+	GenreCabaret:          "Cabaret",
+	GenreNewWave:          "NewWave",
+	GenrePsychedelic:      "Psychedelic",
+	GenreRave:             "Rave",
+	GenreShowtunes:        "Showtunes",
+	GenreTrailer:          "Trailer",
+	GenreLofi:             "Lofi",
+	GenreTribal:           "Tribal",
+	GenreAcidPunk:         "Acid Punk",
+	GenreAcidJazz:         "Acid Jazz",
+	GenrePolka:            "Polka",
+	GenreRetro:            "Retro",
+	GenreMusical:          "Musical",
+	GenreRockNRoll:        "RockNRoll",
+	GenreHardRock:         "Hard Rock",
+}
+
 type MP4Picture struct {
 	Format ImageType
 	Data []byte
 }
 
 type MP4Tags struct {
-	Album string
-	AlbumSort string 
-	AlbumArtist string
+	Album string // moov.udta.meta.ilst.(c)alb
+	AlbumSort string
+	AlbumArtist string // moov.udta.meta.ilst.aART
 	AlbumArtistSort string
-	Artist string
+	Artist string // moov.udta.meta.ilst.(c)art
 	ArtistSort string
+	EncodingTool string // moov.udta.meta.ilst.(c)too
 	BPM int16
-	Comment string
-	Composer string
+	Comment string // moov.udta.meta.ilst.(c)cmt
+	Composer string // moov.udta.meta.ilst.(c)wrt
 	ComposerSort string
-	Conductor string
-	Copyright string
+	Conductor string // moov.udta.meta.ilst.(c)con
+	Copyright string // moov.udta.meta.ilst.cprt
 	Custom map[string]string
-	CustomGenre string
-	Date string
-	Description string
+	CustomGenre string // moov.udta.meta.ilst.(c)gen
+	Date string // moov.udta.meta.ilst.(c)day
+	Description string // moov.udta.meta.ilst.desc
+	LongDescription string // moov.udta.meta.ilst.ldes
 	Director string
-	DiscNumber int16
-	DiscTotal int16
+	DiscNumber int16 // moov.udta.meta.ilst.disk
+	DiscTotal int16 // moov.udta.meta.ilst.disk
 	Genre Genre
 	ItunesAdvisory ItunesAdvisory
 	ItunesAlbumID int32
 	ItunesArtistID int32
-	Lyrics string
-	Narrator string
+	ItunesStik ItunesStik // "moov.udta.meta.ilst.stik"
+	Lyrics string // moov.udta.meta.ilst.(c)lyr
+	Narrator string // moov.udta.meta.ilst.(c)nrt
 	OtherCustom map[string][]string
-	Pictures []*MP4Picture
-	Publisher string
-	Title string
+	Pictures []*MP4Picture // "moov.udta.meta.ilst.covr"
+	Publisher string // moov.udta.meta.ilst.(c)pub
+	Title string // moov.udta.meta.ilst.(c)nam
 	TitleSort string
-	TrackNumber int16
-	TrackTotal int16
+	TrackNumber int16 // moov.udta.meta.ilst.trkn
+	TrackTotal int16 // moov.udta.meta.ilst.trkn
+	TVNetwork string // moov.udta.meta.ilst.tvnn
+	TVShow string // moov.udta.meta.ilst.tvsh
+	TVEpisode string // moov.udta.meta.ilst.tven
+	TVEpisodeNum int16 // moov.udta.meta.ilst.tves
+	TVSeason int16 // moov.udta.meta.ilst.tvsn
 	Year int32
 }

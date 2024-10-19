@@ -229,6 +229,24 @@ func (mp4 MP4) readTrknDisk(boxes MP4Boxes, boxName string) (int16, int16, error
 	return num, total, nil
 }
 
+func (mp4 MP4) readTagInt16(boxes MP4Boxes, boxName string) (int16, error) {
+	path := fmt.Sprintf("moov.udta.meta.ilst.%s.data", boxName)
+	box := boxes.getBoxByPath(path)
+	if box == nil {
+		return -1, nil
+	}
+	_, err := mp4.f.Seek(box.StartOffset+18, io.SeekStart)
+	if err != nil {
+		return -1, nil
+	}
+
+	num, err := mp4.readI16BE()
+	if err != nil {
+		return -1, nil
+	}
+	return num, nil
+}
+
 func addToOthers(others map[string][]string, key, val string) map[string][]string {
 	existingOthers, ok := others[key]
 	if ok {
@@ -379,6 +397,27 @@ func (mp4 MP4) readGenre(boxes MP4Boxes) (Genre, error) {
 	return genre, nil
 }
 
+func (mp4 MP4) readItunesStik(boxes MP4Boxes) (ItunesStik, error) {
+	none := Normal
+	box := boxes.getBoxByPath("moov.udta.meta.ilst.stik.data")
+	if box == nil {
+		return none, nil
+	}
+	_, err := mp4.f.Seek(box.StartOffset+17, io.SeekStart)
+	if err != nil {
+		return none, err
+	}
+	b, err := mp4.readByte()
+	if err != nil {
+		return none, err
+	}
+	stik, ok := resolveItunesStik[uint8(b)]
+	if !ok {
+		return none, nil
+	}
+	return stik, nil
+}
+
 func (mp4 MP4) readTags(boxes MP4Boxes) (*MP4Tags, error) {
 	album, err := mp4.readTag(boxes, "(c)alb")
 	if err != nil  {
@@ -396,7 +435,10 @@ func (mp4 MP4) readTags(boxes MP4Boxes) (*MP4Tags, error) {
 	if err != nil {
 		return nil, err
 	}
-
+	encodingTool, err := mp4.readTag(boxes, "(c)too")
+	if err != nil {
+		return nil, err
+	}
 	comment, err := mp4.readTag(boxes, "(c)cmt")
 	if err != nil  {
 		return nil, err
@@ -422,6 +464,10 @@ func (mp4 MP4) readTags(boxes MP4Boxes) (*MP4Tags, error) {
 		return nil, err
 	}
 	description, err := mp4.readTag(boxes, "desc")
+	if err != nil  {
+		return nil, err
+	}
+	longDescription, err := mp4.readTag(boxes, "ldes")
 	if err != nil  {
 		return nil, err
 	}
@@ -474,7 +520,30 @@ func (mp4 MP4) readTags(boxes MP4Boxes) (*MP4Tags, error) {
 	if err != nil  {
 		return nil, err
 	}
-
+	tVSeason, err := mp4.readTagInt16(boxes, "tvsn")
+	if err != nil {
+		return nil, err
+	}
+	tvShow, err := mp4.readTag(boxes, "tvsh")
+	if err != nil {
+		return nil, err
+	}
+	tvEpisodeNum, err := mp4.readTagInt16(boxes, "tves")
+	if err != nil {
+		return nil, err
+	}
+	tvEpisodeID, err := mp4.readTag(boxes, "tven")
+	if err != nil {
+		return nil, err
+	}
+	tvNetwork, err := mp4.readTag(boxes, "tvnn")
+	if err != nil {
+		return nil, err
+	}
+	iTunesStik, err := mp4.readItunesStik(boxes)
+	if err != nil {
+		return nil, err
+	}
 	tags := &MP4Tags{
 		Album: album,
 		AlbumArtist: albumArtist,
@@ -501,6 +570,14 @@ func (mp4 MP4) readTags(boxes MP4Boxes) (*MP4Tags, error) {
 		Title: title,
 		TrackNumber: trackNum,
 		TrackTotal: trackTotal,
+		TVNetwork: tvNetwork,
+		TVShow: tvShow,
+		TVSeason: tVSeason,
+		TVEpisode: tvEpisodeID,
+		TVEpisodeNum: tvEpisodeNum,
+		EncodingTool: encodingTool,
+		LongDescription: longDescription,
+		ItunesStik: iTunesStik,
 	}
 
 	year, err := mp4.readTag(boxes, "(c)day")
