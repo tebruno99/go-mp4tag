@@ -3,24 +3,23 @@ package mp4tag
 import "os"
 
 type ErrBoxNotPresent struct {
-    Msg  string
+	Msg string
 }
 
 type ErrUnsupportedFtyp struct {
-    Msg  string
+	Msg string
 }
 
-type ErrInvalidStcoSize struct {}
+type ErrInvalidStcoSize struct{}
 
-type ErrInvalidMagic struct {}
+type ErrInvalidMagic struct{}
 
-
-func (e *ErrBoxNotPresent) Error() string { 
-    return e.Msg
+func (e *ErrBoxNotPresent) Error() string {
+	return e.Msg
 }
 
-func (e *ErrUnsupportedFtyp) Error() string { 
-    return e.Msg
+func (e *ErrUnsupportedFtyp) Error() string {
+	return e.Msg
 }
 
 func (_ *ErrInvalidStcoSize) Error() string {
@@ -43,14 +42,14 @@ var ftyps = [8][]byte{
 }
 
 var containers = []string{
-  "moov", "udta", "meta", "ilst", "----", "(c)alb",
-  "aART", "(c)art", "(c)nam", "(c)cmt", "(c)gen", "gnre",
-  "(c)wrt", "(c)con", "cprt", "desc", "(c)lyr", "(c)nrt",
-  "(c)pub", "trkn", "covr", "(c)day", "disk", "(c)too",
-  "trak", "mdia", "minf", "stbl", "rtng", "plID",
-  "atID", "tmpo", "sonm", "soal", "soar", "soco",
-  "soaa", "tvsn", "tvsh", "tves", "tven", "tvnn", "stik",
-  "ldes",
+	"moov", "udta", "meta", "ilst", "----", "(c)alb",
+	"aART", "(c)art", "(c)nam", "(c)cmt", "(c)gen", "gnre",
+	"(c)wrt", "(c)con", "cprt", "desc", "(c)lyr", "(c)nrt",
+	"(c)pub", "trkn", "covr", "(c)day", "disk", "(c)too",
+	"trak", "mdia", "minf", "stbl", "rtng", "plID",
+	"atID", "tmpo", "sonm", "soal", "soar", "soco",
+	"soaa", "tvsn", "tvsh", "tves", "tven", "tvnn", "stik",
+	"ldes",
 }
 
 // 0-9
@@ -60,9 +59,9 @@ var numbers = []rune{
 }
 
 type MP4 struct {
-	f *os.File
-	path string
-	size int64
+	f           *os.File
+	path        string
+	size        int64
 	upperCustom bool
 }
 
@@ -78,6 +77,7 @@ type MP4Boxes struct {
 }
 
 type ImageType int8
+
 const (
 	ImageTypeJPEG ImageType = iota + 13
 	ImageTypePNG
@@ -90,6 +90,7 @@ var resolveImageType = map[uint8]ImageType{
 }
 
 type ItunesAdvisory int8
+
 const (
 	ItunesAdvisoryNone ItunesAdvisory = iota
 	ItunesAdvisoryExplicit
@@ -103,6 +104,7 @@ var resolveItunesAdvisory = map[uint8]ItunesAdvisory{
 
 // iTunes stik
 type ItunesStik int8
+
 const (
 	HomeVideo       ItunesStik = 0
 	Normal          ItunesStik = 1
@@ -147,6 +149,7 @@ var displayItunesStik = map[ItunesStik]string{
 
 // GenreNone
 type Genre int8
+
 const (
 	GenreNone Genre = iota
 	GenreBlues
@@ -231,15 +234,15 @@ const (
 )
 
 var resolveGenre = map[uint8]Genre{
-	1: GenreBlues,
-	2: GenreClassicRock,
-	3: GenreCountry,
-	4: GenreDance,
-	5: GenreDisco,
-	6: GenreFunk,
-	7: GenreGrunge,
-	8: GenreHipHop,
-	9: GenreJazz,
+	1:  GenreBlues,
+	2:  GenreClassicRock,
+	3:  GenreCountry,
+	4:  GenreDance,
+	5:  GenreDisco,
+	6:  GenreFunk,
+	7:  GenreGrunge,
+	8:  GenreHipHop,
+	9:  GenreJazz,
 	10: GenreMetal,
 	11: GenreNewAge,
 	12: GenreOldies,
@@ -396,49 +399,49 @@ var displayGenre = map[Genre]string{
 
 type MP4Picture struct {
 	Format ImageType
-	Data []byte
+	Data   []byte
 }
 
 type MP4Tags struct {
-	Album string // moov.udta.meta.ilst.(c)alb
-	AlbumSort string
-	AlbumArtist string // moov.udta.meta.ilst.aART
+	Album           string // moov.udta.meta.ilst.(c)alb
+	AlbumSort       string
+	AlbumArtist     string // moov.udta.meta.ilst.aART
 	AlbumArtistSort string
-	Artist string // moov.udta.meta.ilst.(c)art
-	ArtistSort string
-	EncodingTool string // moov.udta.meta.ilst.(c)too
-	BPM int16
-	Comment string // moov.udta.meta.ilst.(c)cmt
-	Composer string // moov.udta.meta.ilst.(c)wrt
-	ComposerSort string
-	Conductor string // moov.udta.meta.ilst.(c)con
-	Copyright string // moov.udta.meta.ilst.cprt
-	Custom map[string]string
-	CustomGenre string // moov.udta.meta.ilst.(c)gen
-	Date string // moov.udta.meta.ilst.(c)day
-	Description string // moov.udta.meta.ilst.desc
+	Artist          string // moov.udta.meta.ilst.(c)art
+	ArtistSort      string
+	EncodingTool    string // moov.udta.meta.ilst.(c)too
+	BPM             int16
+	Comment         string // moov.udta.meta.ilst.(c)cmt
+	Composer        string // moov.udta.meta.ilst.(c)wrt
+	ComposerSort    string
+	Conductor       string // moov.udta.meta.ilst.(c)con
+	Copyright       string // moov.udta.meta.ilst.cprt
+	Custom          map[string]string
+	CustomGenre     string // moov.udta.meta.ilst.(c)gen
+	Date            string // moov.udta.meta.ilst.(c)day
+	Description     string // moov.udta.meta.ilst.desc
 	LongDescription string // moov.udta.meta.ilst.ldes
-	Director string
-	DiscNumber int16 // moov.udta.meta.ilst.disk
-	DiscTotal int16 // moov.udta.meta.ilst.disk
-	Genre Genre
-	ItunesAdvisory ItunesAdvisory
-	ItunesAlbumID int32
-	ItunesArtistID int32
-	ItunesStik ItunesStik // "moov.udta.meta.ilst.stik"
-	Lyrics string // moov.udta.meta.ilst.(c)lyr
-	Narrator string // moov.udta.meta.ilst.(c)nrt
-	OtherCustom map[string][]string
-	Pictures []*MP4Picture // "moov.udta.meta.ilst.covr"
-	Publisher string // moov.udta.meta.ilst.(c)pub
-	Title string // moov.udta.meta.ilst.(c)nam
-	TitleSort string
-	TrackNumber int16 // moov.udta.meta.ilst.trkn
-	TrackTotal int16 // moov.udta.meta.ilst.trkn
-	TVNetwork string // moov.udta.meta.ilst.tvnn
-	TVShow string // moov.udta.meta.ilst.tvsh
-	TVEpisode string // moov.udta.meta.ilst.tven
-	TVEpisodeNum int16 // moov.udta.meta.ilst.tves
-	TVSeason int16 // moov.udta.meta.ilst.tvsn
-	Year int32
+	Director        string
+	DiscNumber      int16 // moov.udta.meta.ilst.disk
+	DiscTotal       int16 // moov.udta.meta.ilst.disk
+	Genre           Genre
+	ItunesAdvisory  ItunesAdvisory
+	ItunesAlbumID   int32
+	ItunesArtistID  int32
+	ItunesStik      ItunesStik // "moov.udta.meta.ilst.stik"
+	Lyrics          string     // moov.udta.meta.ilst.(c)lyr
+	Narrator        string     // moov.udta.meta.ilst.(c)nrt
+	OtherCustom     map[string][]string
+	Pictures        []*MP4Picture // "moov.udta.meta.ilst.covr"
+	Publisher       string        // moov.udta.meta.ilst.(c)pub
+	Title           string        // moov.udta.meta.ilst.(c)nam
+	TitleSort       string
+	TrackNumber     int16  // moov.udta.meta.ilst.trkn
+	TrackTotal      int16  // moov.udta.meta.ilst.trkn
+	TVNetwork       string // moov.udta.meta.ilst.tvnn
+	TVShow          string // moov.udta.meta.ilst.tvsh
+	TVEpisode       string // moov.udta.meta.ilst.tven
+	TVEpisodeNum    int16  // moov.udta.meta.ilst.tves
+	TVSeason        int16  // moov.udta.meta.ilst.tvsn
+	Year            int32
 }
