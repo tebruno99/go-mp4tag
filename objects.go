@@ -1,6 +1,9 @@
 package mp4tag
 
-import "os"
+import (
+	"errors"
+	"os"
+)
 
 type ErrBoxNotPresent struct {
 	Msg string
@@ -145,6 +148,10 @@ var displayItunesStik = map[ItunesStik]string{
 	RingTone:        "Ring Tone",
 	Podcast:         "Podcast",
 	iTunesU:         "iTunesU",
+}
+
+func DisplayItunesStik(stik ItunesStik) string {
+	return displayItunesStik[stik]
 }
 
 // GenreNone
@@ -395,6 +402,13 @@ var displayGenre = map[Genre]string{
 	GenreMusical:          "Musical",
 	GenreRockNRoll:        "RockNRoll",
 	GenreHardRock:         "Hard Rock",
+}
+
+func DisplayGenre(genre Genre) (string,error)  {
+	if s, ok := displayGenre[genre]; ok {
+		return s,nil
+	}
+	return "Unknown",errors.New("unknown genre")
 }
 
 type MP4Picture struct {
